@@ -3,7 +3,7 @@
 [![Go](https://img.shields.io/badge/Go-1.18%2B-blue.svg)](https://golang.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-A lightweight, dependency-free Go library for reading, validating, and merging **WAV PCM audio files**. Designed for
+A lightweight, dependency-free Go library for reading, validating, merging **WAV PCM audio files** and concatenate them. Designed for
 reliability and ease of use in audio processing pipelines—ideal for phone call recordings, batch operations, or simple
 audio editing tasks.
 
@@ -59,17 +59,17 @@ and the output for a new instance
 ```go
 f, err := os.Open("mono.wav")
 if err != nil {
-log.Fatal(err)
+    log.Fatal(err)
 }
 defer f.Close()
 
 wav, err := audio.NewPCMAudio(f)
 if err != nil {
-log.Fatal(err)
+    log.Fatal(err)
 }
 
 if ok, err := wav.Validate(); !ok {
-log.Fatal("Invalid WAV file:", err)
+    log.Fatal("Invalid WAV file:", err)
 }
 
 fmt.Printf("Sample rate: %d Hz\n", wav.SampleRate)
@@ -85,41 +85,41 @@ Perfect for combining separate caller/callee tracks from a phone call:
 ```go
 f1, err := os.Open("client.wav")
 if err != nil {
-log.Fatal(err)
+    log.Fatal(err)
 }
 defer f1.Close()
 
 client, err := audio.NewPCMAudio(f1)
 if err != nil {
-log.Fatal(err)
+    log.Fatal(err)
 }
 if ok, err := client.Validate(); !ok {
-log.Fatal(err)
+    log.Fatal(err)
 }
 
 f2, err := os.Open("operator.wav")
 if err != nil {
-log.Fatal(err)
+    log.Fatal(err)
 }
 defer f2.Close()
 
 operator, err := audio.NewPCMAudio(f2)
 if err != nil {
-log.Fatal(err)
+    log.Fatal(err)
 }
 if ok, err := operator.Validate(); !ok {
-log.Fatal(err)
+    log.Fatal(err)
 }
 
 output, err := os.Create("output.wav")
 if err != nil {
-log.Fatal(err)
+    log.Fatal(err)
 }
 defer output.Close()
 
 err = client.Merge(operator, output)
 if err != nil {
-log.Fatal(err)
+    log.Fatal(err)
 }
 ```
 
@@ -130,40 +130,40 @@ A good solution if you need concatenate 2 .wav files efficiently
 ```go
 f1, err := os.Open("welcome.wav")
 if err != nil {
-log.Fatal(err)
+    log.Fatal(err)
 }
 defer f1.Close()
 
 welcomeSound, err := audio.NewPCMAudio(f1)
 if err != nil {
-log.Fatal(err)
+    log.Fatal(err)
 }
 if ok, err := welcomeSound.Validate(); !ok {
-log.Fatal(err)
+    log.Fatal(err)
 }
 
 f2, err := os.Open("ring.wav")
 if err != nil {
-log.Fatal(err)
+    log.Fatal(err)
 }
 defer f2.Close()
 
 ring, err := audio.NewPCMAudio(f2)
 if err != nil {
-log.Fatal(err)
+    log.Fatal(err)
 }
 if ok, err := ring.Validate(); !ok {
-log.Fatal(err)
+    log.Fatal(err)
 }
 
 output, err := os.Create("output.wav")
 if err != nil {
-log.Fatal(err)
+    log.Fatal(err)
 }
 defer output.Close()
 
 err = welcomeSound.Concat(ring, output)
 if err != nil {
-log.Fatal(err)
+    log.Fatal(err)
 }
 ```
