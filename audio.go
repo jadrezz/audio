@@ -76,18 +76,9 @@ func (p *PCMAudio) Validate() (bool, error) {
 // Accepts other PCMAudio and io.Writer to write the result
 // If something goes wrong, returns an error
 func (p *PCMAudio) Merge(other *PCMAudio, output io.Writer) error {
-	if !p.valid || !other.valid {
-		return errors.New("validate each audio file first")
+	if err := checkRequiredParams(p, other); err != nil {
+		return err
 	}
-
-	if p.SampleRate != other.SampleRate {
-		return errors.New("rate of both audio files must match")
-	}
-
-	if p.BitsPerSample != other.BitsPerSample {
-		return errors.New("bits per sample of both audio files must match")
-	}
-
 	newChunkSize := 36 + p.SubChunk2Size + other.SubChunk2Size
 	newBlockAlign := stereo * (p.BitsPerSample / 8)
 	newSubChunk2Size := p.SubChunk2Size + other.SubChunk2Size
@@ -173,6 +164,72 @@ func (p *PCMAudio) Merge(other *PCMAudio, output io.Writer) error {
 			break
 		}
 	}
+
+	return nil
+}
+
+// Concat creates a single file made from 2 files
+//
+// Accepts other PCMAudio and io.Writer to write the result
+// If something goes wrong, returns an error
+func (p *PCMAudio) Concat(other *PCMAudio, output io.Writer) error {
+	if err := checkRequiredParams(p, other); err != nil {
+		return err
+	}
+
+	numChannels := chooseMode(p, other)
+	newChunkSize := 36 + p.SubChunk2Size + other.SubChunk2Size
+	newBlockAlign := numChannels * (p.BitsPerSample / 8)
+	newSubChunk2Size := p.SubChunk2Size + other.SubChunk2Size
+
+	newHeaders := headers{
+		ChunkID:       [4]byte([]byte(chunkID)),
+		ChunkSize:     newChunkSize,
+		Format:        [4]byte([]byte(format)),
+		SubChunk1ID:   [4]byte([]byte(subChunkID)),
+		SubChunk1Size: subChunk1Size,
+		AudioFormat:   audioFormat,
+		NumChannels:   numChannels,
+		SampleRate:    p.SampleRate,
+		ByteRate:      p.SampleRate * uint32(newBlockAlign),
+		BlockAlign:    newBlockAlign,
+		BitsPerSample: p.BitsPerSample,
+		SubChunk2ID:   [4]byte([]byte(subChunk2ID)),
+		SubChunk2Size: newSubChunk2Size,
+	}
+	err := binary.Write(output, binary.LittleEndian, newHeaders)
+	if err != nil {
+		return fmt.Errorf("could not write headers: %v", err)
+	}
+
+	_, err = p.data.Seek(44, io.SeekStart)
+	if err != nil {
+		return fmt.Errorf("could not seek left: %v", err)
+	}
+
+	n, err := io.Copy(output, io.LimitReader(p.data, int64(p.SubChunk2Size)))
+	if err != nil {
+		return fmt.Errorf("could not write into output: %v", err.Error())
+	}
+	if n != int64(p.SubChunk2Size) {
+		return fmt.Errorf("could not write all bytes into output: expected %d, result %d",
+			p.SubChunk2Size, n)
+	}
+
+	_, err = other.data.Seek(44, io.SeekStart)
+	if err != nil {
+		return fmt.Errorf("could not seek right: %v", err)
+	}
+
+	n, err = io.Copy(output, io.LimitReader(other.data, int64(other.SubChunk2Size)))
+	if err != nil {
+		return fmt.Errorf("could not write into output: %v", err.Error())
+	}
+	if n != int64(other.SubChunk2Size) {
+		return fmt.Errorf("could not write all bytes into output: expected %d, result %d",
+			other.SubChunk2Size, n)
+	}
+
 	return nil
 }
 
