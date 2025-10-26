@@ -19,7 +19,8 @@ const (
 	mono, stereo  uint16 = 1, 2
 )
 
-type meta struct {
+// headers are the fixed fields of a WAV file
+type headers struct {
 	// Contains "RIFF" in ASCII
 	ChunkID [4]byte
 	// Audio file size excluding 8 bytes
@@ -45,23 +46,24 @@ type meta struct {
 	SubChunk2Size uint32
 }
 
-// PCMAudioMetadata is a specification of WAVE PCM audio files. Contains 44 bytes
-type PCMAudioMetadata struct {
-	meta
+// PCMAudio is a specification of WAVE PCM audio files. Contains 44 bytes
+type PCMAudio struct {
+	headers
+	data  io.ReadSeeker
 	valid bool
 }
 
-func (p *PCMAudioMetadata) Validate() (bool, error) {
+func (p *PCMAudio) Validate() (bool, error) {
 	switch {
-	case string(p.meta.ChunkID[:]) != chunkID:
+	case string(p.ChunkID[:]) != chunkID:
 		return false, errors.New("RIFF header doesn't match")
-	case string(p.meta.Format[:]) != format:
+	case string(p.Format[:]) != format:
 		return false, errors.New("audio format doesn't match")
-	case string(p.meta.SubChunk1ID[:]) != subChunkID:
+	case string(p.SubChunk1ID[:]) != subChunkID:
 		return false, errors.New("subchunk fmt doesn't match")
-	case p.meta.SubChunk1Size != subChunk1Size || p.meta.AudioFormat != audioFormat:
+	case p.SubChunk1Size != subChunk1Size || p.AudioFormat != audioFormat:
 		return false, errors.New("provided data is not PCM audio")
-	case string(p.meta.SubChunk2ID[:]) != subChunk2ID:
+	case string(p.SubChunk2ID[:]) != subChunk2ID:
 		return false, errors.New("data header doesn't match")
 	default:
 		p.valid = true
@@ -69,65 +71,73 @@ func (p *PCMAudioMetadata) Validate() (bool, error) {
 	}
 }
 
-func (p *PCMAudioMetadata) Merge(other *PCMAudioMetadata, output io.Writer, left, right io.ReadSeeker) error {
+// Merge creates a single stereo file made from 2 mono files.
+//
+// Accepts other PCMAudio and io.Writer to write the result
+// If something goes wrong, returns an error
+func (p *PCMAudio) Merge(other *PCMAudio, output io.Writer) error {
 	if !p.valid || !other.valid {
 		return errors.New("validate each audio file first")
 	}
 
-	if p.meta.SampleRate != other.meta.SampleRate {
+	if p.SampleRate != other.SampleRate {
 		return errors.New("rate of both audio files must match")
 	}
 
-	if p.meta.BitsPerSample != other.meta.BitsPerSample {
+	if p.BitsPerSample != other.BitsPerSample {
 		return errors.New("bits per sample of both audio files must match")
 	}
 
-	newMeta := meta{
+	newChunkSize := 36 + p.SubChunk2Size + other.SubChunk2Size
+	newBlockAlign := stereo * (p.BitsPerSample / 8)
+	newSubChunk2Size := p.SubChunk2Size + other.SubChunk2Size
+
+	newHeaders := headers{
 		ChunkID:       [4]byte([]byte(chunkID)),
-		ChunkSize:     36 + p.meta.SubChunk2Size + other.meta.SubChunk2Size,
+		ChunkSize:     newChunkSize,
 		Format:        [4]byte([]byte(format)),
 		SubChunk1ID:   [4]byte([]byte(subChunkID)),
 		SubChunk1Size: subChunk1Size,
 		AudioFormat:   audioFormat,
 		NumChannels:   stereo,
-		SampleRate:    p.meta.SampleRate,
-		ByteRate:      p.meta.SampleRate * uint32(stereo) * uint32(p.meta.BitsPerSample/8),
-		BlockAlign:    stereo * (p.meta.BitsPerSample / 8),
-		BitsPerSample: p.meta.BitsPerSample,
+		SampleRate:    p.SampleRate,
+		ByteRate:      p.SampleRate * uint32(newBlockAlign),
+		BlockAlign:    newBlockAlign,
+		BitsPerSample: p.BitsPerSample,
 		SubChunk2ID:   [4]byte([]byte(subChunk2ID)),
-		SubChunk2Size: p.meta.SubChunk2Size + other.meta.SubChunk2Size,
+		SubChunk2Size: newSubChunk2Size,
 	}
-	err := binary.Write(output, binary.LittleEndian, newMeta)
+	err := binary.Write(output, binary.LittleEndian, newHeaders)
 	if err != nil {
 		return fmt.Errorf("could not write headers: %v", err)
 	}
 
-	_, err = left.Seek(44, io.SeekStart)
+	_, err = p.data.Seek(44, io.SeekStart)
 	if err != nil {
 		return fmt.Errorf("could not seek left: %v", err)
 	}
 
-	_, err = right.Seek(44, io.SeekStart)
+	_, err = other.data.Seek(44, io.SeekStart)
 	if err != nil {
 		return fmt.Errorf("could not seek right: %v", err)
 	}
 
-	sampleSize := int(p.meta.BitsPerSample / 8)
+	sampleSize := int(p.BitsPerSample / 8)
 	bufLeft := make([]byte, sampleSize)
 	bufRight := make([]byte, sampleSize)
 
 	for {
-		nL, errL := left.Read(bufLeft)
+		nL, errL := p.data.Read(bufLeft)
 		if errL != nil && errL != io.EOF {
 			return fmt.Errorf("error reading left: %v", errL)
 		}
 
-		nR, errR := right.Read(bufRight)
+		nR, errR := other.data.Read(bufRight)
 		if errR != nil && errR != io.EOF {
 			return fmt.Errorf("error reading right: %v", errR)
 		}
 
-		// left and right data are consumed
+		// both data are consumed
 		if (errL == io.EOF || nL == 0) && (errR == io.EOF || nR == 0) {
 			break
 		}
@@ -163,15 +173,15 @@ func (p *PCMAudioMetadata) Merge(other *PCMAudioMetadata, output io.Writer, left
 			break
 		}
 	}
-
 	return nil
 }
 
-// NewPCMAudioMetadata receives an io.Reader param and completes its fields
-func NewPCMAudioMetadata(data io.Reader) (*PCMAudioMetadata, error) {
-	var p PCMAudioMetadata
-	if err := binary.Read(data, binary.LittleEndian, &p.meta); err != nil {
+// NewPCMAudio receives an io.ReadSeeker param and completes headers fields
+func NewPCMAudio(data io.ReadSeeker) (*PCMAudio, error) {
+	var p PCMAudio
+	if err := binary.Read(data, binary.LittleEndian, &p.headers); err != nil {
 		return nil, fmt.Errorf("could not read and parse the recieved data: %v", err.Error())
 	}
+	p.data = data
 	return &p, nil
 }

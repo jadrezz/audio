@@ -22,64 +22,68 @@ go get github.com/jadrezz/audio
 ## 🚀 Usage examples
 * Read and inspect WAV metadata
 ```go
-f, err := os.Open("recording.wav")
+f, err := os.Open("mono.wav")
 if err != nil {
-    log.Fatal(err)
+log.Fatal(err)
 }
 defer f.Close()
 
-meta, err := audio.NewPCMAudioMetadata(f)
+wav, err := audio.NewPCMAudio(f)
 if err != nil {
-    log.Fatal(err)
+log.Fatal(err)
 }
 
-if ok, err := meta.Validate(); !ok {
-    log.Fatal("Invalid WAV file:", err)
+if ok, err := wav.Validate(); !ok {
+log.Fatal("Invalid WAV file:", err)
 }
 
-fmt.Printf("Sample rate: %d Hz\n", meta.SampleRate)
-fmt.Printf("Bits per sample: %d\n", meta.BitsPerSample)
-fmt.Printf("Channels: %d\n", meta.NumChannels)
-fmt.Printf("Byte rate: %d B/s\n", meta.ByteRate)
+fmt.Printf("Sample rate: %d Hz\n", wav.SampleRate)
+fmt.Printf("Bits per sample: %d\n", wav.BitsPerSample)
+fmt.Printf("Channels: %d\n", wav.NumChannels)
+fmt.Printf("Byte rate: %d B/s\n", wav.ByteRate)
 ```
 
 * Merge two mono recordings into stereo
 
 Perfect for combining separate caller/callee tracks from a phone call:
 ```go
-f1, err := os.Open("part1.wav")
+f1, err := os.Open("client.wav")
 if err != nil {
-	log.Fatal(err)
+log.Fatal(err)
 }
 defer f1.Close()
 
-meta, err := audio.NewPCMAudioMetadata(f1)
+client, err := audio.NewPCMAudio(f1)
 if err != nil {
-	log.Fatal(err)
+log.Fatal(err)
 }
-if ok, err := meta.Validate(); !ok {
-	log.Fatal(err)
+if ok, err := client.Validate(); !ok {
+log.Fatal(err)
 }
-	
-f2, err := os.Open("part2.wav")
+
+f2, err := os.Open("operator.wav")
 if err != nil {
-	log.Fatal(err)
+log.Fatal(err)
 }
 defer f2.Close()
 
-meta2, err := audio.NewPCMAudioMetadata(f2)
+operator, err := audio.NewPCMAudio(f2)
 if err != nil {
-	log.Fatal(err)
+log.Fatal(err)
 }
-if ok, err := meta2.Validate(); !ok {
-	log.Fatal(err)
+if ok, err := operator.Validate(); !ok {
+log.Fatal(err)
 }
+
 output, err := os.Create("output.wav")
 if err != nil {
-	log.Fatal(err)
+log.Fatal(err)
 }
 defer output.Close()
 
-err = meta.Merge(meta2, output, f1, f2))
+err = client.Merge(operator, output)
+if err != nil {
+log.Fatal(err)
+}
 ```
 
